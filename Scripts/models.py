@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from typing import List, Tuple, Dict
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
 
 torch.cuda.is_available()
 if torch.cuda.is_available():
@@ -12,16 +13,20 @@ if torch.cuda.is_available():
 else:
     device = 'cpu'
     
+random_seed = 42
+np.random.seed(random_seed)
+    
 ####
 #
 # Classes para avaliação das músicas
 #
 ###
 
-class Evaluator(object):
-    def __init__(self, classifier_model, regressor_model, user: str) -> None:
-        self.classifier = classifier_model
-        self.regressor  = regressor_model
+class Valuer(object):
+    def __init__(self, classification_model, regression_model) -> None:
+        super(Valuer, self).__init__()
+        self.classifier = classification_model
+        self.regressor  = regression_model
         
     def predict(self, X: np.array) -> np.array:
         """
@@ -33,7 +38,7 @@ class Evaluator(object):
         Returns:
             None.
         """
-        return np.array([self.classifier.predict(X), self.regressor.predict(X)])
+        return np.array([self.classifier.predict(X), self.regressor.predict(X)]).T
         
 ####
 #
@@ -140,7 +145,7 @@ class VAELoss(nn.Module):
 ### 
     
 class Recommender(object):
-    def __init__(self, generativeModel: VariationalAutoencoder, evaluationModel: Evaluator, scaler: MinMaxScaler, user: str):
+    def __init__(self, generativeModel: VariationalAutoencoder, evaluationModel: Valuer, scaler: MinMaxScaler, user: str):
         # Adicionar o modelo de avaliação
         """
         Comentário.
@@ -203,9 +208,12 @@ class Recommender(object):
         
         # Filtra as músicas
         if self.evaluationModel != None:
-            music_list['evaluation'] = self.evaluationModel.predict(music_list.values)
-            music_list = music_list.sort_by('evaluation')
-            music_list = music_list.iloc[n_musics]
+            music_list['evaluation'] = [tuple(x) for x in self.evaluationModel.predict(music_list.values)]
+            music_list = music_list.sort_values('evaluation', ascending = False)
+            music_list = music_list.iloc[:n_musics]
         
         # retorna a lista de músicas reais
         return music_list
+    
+    def test_model(self, user_dataset: pd.DataFrame):
+        pass

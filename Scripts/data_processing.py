@@ -119,7 +119,7 @@ class DataManager(object):
         
         return X, Y
     
-    def train_test_split(self, user: str, kwargs: Dict, classification: bool = True, balance: bool = False) -> Tuple[np.array]:
+    def get_training_data(self, user: str, test_size: float = None, classification: bool = True, oversampling: str = None) -> Tuple[np.array]:
         """
         Separa os dados em conjunto de treinamento e teste para o ajuste de um modelo de regressão ou classificação. Se especificado, seleciona os dados de um usuário.
 
@@ -136,17 +136,21 @@ class DataManager(object):
         
         if classification:
             Y = Y[:, 0]
+            if oversampling == 'SMOTENC':
+                X, Y = SMOTENC_oversampling(X, Y)
+#             elif oversampling == 'SMOTE':
+#                 X, Y = SMOTE_oversampling(X, Y)
         else:
             Y = Y[:, 1]
         
         Y = Y.ravel()
         
-        if balance:
-            X, Y = SMOTE_oversampling(X, Y)
+        if test_size != None:
+            X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size = test_size)
         
-        X_train, X_test, y_train, y_test = train_test_split(X, Y, **kwargs)
-        
-        return X_train, X_test, y_train, y_test
+            return X_train, X_test, y_train, y_test
+        else:
+            return X, Y
         
     
 def bateria_to_bool(dataframe: pd.DataFrame) -> pd.DataFrame:
@@ -251,9 +255,10 @@ def scale_to_bool(scale: str) -> int:
     }[scale]
     return string
 
-def SMOTE_oversampling(X_train: np.array, y_train: np.array) -> Tuple[np.array]:
+
+def SMOTENC_oversampling(X_train: np.array, y_train: np.array) -> Tuple[np.array]:
     """
-    Faz upsampling para balancear os dados de treinamento.
+    Faz upsampling utilizando o algoritmo SMOTENC para balancear os dados de treinamento.
     
     ** Essa função pode ser aprimorada incluindo mais de uma estratégia, mas provavelmente não vai dar tempo **
 
@@ -264,12 +269,13 @@ def SMOTE_oversampling(X_train: np.array, y_train: np.array) -> Tuple[np.array]:
     Returns:
         Tuple[np.array]: A tupla (X_train_res, Y_train_res) com os dados balanceados.
     """
-    # colocar uns parametros uteis de entrada
-    # Teste do SMOTE
-    # sm = SMOTE(random_state=42)
-    # X_train_res, Y_train_res = sm.fit_resample(X_train, y_train)
-
-    categorical_index = np.arange(0,37 + 1)
+# colocar uns parametros uteis de entrada
+# melhorar esse hardcode
+    a = np.arange(0,8)
+    b = np.array([11])
+    c = np.arange(15,43)
+    categorical_index = np.concatenate([a,c])
+    categorical_index = np.concatenate([categorical_index,b])
     categorical_index = list(categorical_index)
 
     # Teste SMOTE-NC
@@ -281,7 +287,33 @@ def SMOTE_oversampling(X_train: np.array, y_train: np.array) -> Tuple[np.array]:
     pipeline = Pipeline(steps=steps)
 
     X_train_res, Y_train_res = pipeline.fit_resample(X_train, y_train)
+    return X_train_res, Y_train_res
+
+def SMOTE_oversampling(X_train: np.array, y_train: np.array) -> Tuple[np.array]:
+    """
+    Faz upsampling utilizando o algoritmo SMOTE para balancear os dados de treinamento.
     
+    ** Essa função pode ser aprimorada incluindo mais de uma estratégia, mas provavelmente não vai dar tempo **
+
+    Args:
+        X_train (np.array): Array de features.
+        y_train (np.array): Array de targets.
+        
+    Returns:
+        Tuple[np.array]: A tupla (X_train_res, Y_train_res) com os dados balanceados.
+    """
+    # colocar uns parametros uteis de entrada
+    raise ValueError("Do not use SMOTE to a categorical dataset: The result can be biased")
+    # Teste do SMOTE
+    sm = SMOTE(random_state=42)
+    X_train_res, Y_train_res = sm.fit_resample(X_train, y_train)
+
+    under = RandomUnderSampler(sampling_strategy='majority',random_state=0)
+
+    steps = [('o', ), ('u', under)]
+    pipeline = Pipeline(steps=steps)
+
+    X_train_res, Y_train_res = pipeline.fit_resample(X_train, y_train)
     return X_train_res, Y_train_res
 
 def check_balancing(Y: np.array) -> Tuple[int]:
