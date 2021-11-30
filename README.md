@@ -20,4 +20,4 @@ Fora os módulos tradicionais para Aprendizado de Máquina disponíveis pelo pac
 
 ### Diagrama Esquemático do Sistema de Recomendação
 
-<img src="Sistema.png" width="400" height = "350" title="diagrama_sistema">
+<img src="Sistema.png" width="800" height = "1400" title="diagrama_sistema">
