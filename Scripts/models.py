@@ -3,9 +3,20 @@ from torch import nn
 from torch.nn import functional as F
 import numpy as np
 import pandas as pd
+pd.options.mode.chained_assignment = None
 from typing import List, Tuple, Dict
+
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
+import sklearn.metrics as metrics
+
+from skorch import NeuralNet
+from skorch.dataset import CVSplit
+
+from .data_processing import DataManager
+
 
 torch.cuda.is_available()
 if torch.cuda.is_available():
@@ -179,7 +190,7 @@ class Recommender(object):
         Xhat = self.scaler.inverse_transform(Xhat)
         return Xhat
     
-    def getMusicList(self, n_musics: int, music_dataset: pd.DataFrame, samples_extra: int = 15) -> np.array:
+    def getMusicList(self, n_musics: int, music_dataset: pd.DataFrame) -> np.array:
         """
         Comentário.
 
@@ -190,7 +201,7 @@ class Recommender(object):
             None.
         """
         # usa o modelo generativo para obter uma lista de novas músicas
-        samples = self.sample(n_musics + samples_extra)
+        samples = self.sample(2*n_musics)
         
         # assumindo que esse dataset já está no formato necessário, i.e. sem as colunas do ID do usuário, curtida, data da curtida e n_reprod.
         # transforma em array do numpy
@@ -199,7 +210,7 @@ class Recommender(object):
         # aplica uma função nos rows comparando as distâncias angulares de cada sample com as músicas do dataset
             # pega o índice da música mais próxima
             # gera uma lista com os índices, um para cada amostra
-        min_distances_indices = [np.apply_along_axis(lambda x: np.arccos(np.dot(x, sample) / (np.linalg.norm(x) * np.linalg.norm(sample))), 
+        min_distances_indices = [np.apply_along_axis(lambda x: np.linalg.norm(x - sample), 
                                                      1,
                                                      music_att_array).argmin() for sample in samples]
         
@@ -215,5 +226,119 @@ class Recommender(object):
         # retorna a lista de músicas reais
         return music_list
     
-    def test_model(self, user_dataset: pd.DataFrame):
-        pass
+    def test_model(self, user_dataset: pd.DataFrame, n_musics: int = 20) -> Tuple[float]:
+        """
+        Comentário.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
+        # usa o modelo generativo para obter uma lista de novas músicas
+        samples = self.sample(2*n_musics)
+        
+        music_att_array = user_dataset.drop(columns = ['id_cliente', 'gostou', 'data_curtida', 'n_reproducao']).values
+        
+        min_distances_indices = [np.apply_along_axis(lambda x: np.linalg.norm(x - sample),
+                                                     1,
+                                                     music_att_array).argmin() for sample in samples]
+        
+        music_list = user_dataset.iloc[min_distances_indices]
+        
+        if self.evaluationModel != None:
+            evaluation = [tuple(x) for x in self.evaluationModel.predict(music_list.drop(columns = ['id_cliente', 'gostou', 'data_curtida', 'n_reproducao']).values)]
+            music_list['evaluation'] = evaluation
+            music_list['predict_gostou'] = [predict[0] for predict in evaluation]
+            music_list['predict_n_reproducao'] = [predict[1] for predict in evaluation]
+            music_list = music_list.sort_values('evaluation', ascending = False)
+            music_list = music_list.iloc[:n_musics]
+            
+        gostou_real = music_list['gostou'].values
+        gostou_predict = music_list['predict_gostou'].values
+        n_reprod_real = music_list['n_reproducao'].values
+        n_reprod_predict = music_list['predict_n_reproducao'].values
+        
+        classification_error = metrics.accuracy_score(gostou_real, gostou_predict)
+        regression_error = metrics.mean_squared_error(n_reprod_real, n_reprod_predict)
+        
+        return classification_error, regression_error
+            
+####
+#
+# Funções para o treinamento dos modelos
+#
+### 
+        
+def train_evaluation_system(manager: DataManager, USER: str) -> Tuple[DecisionTreeClassifier, LinearRegression]:
+    """
+    Comentário.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+    """
+    X_train, X_test, y_train, y_test = manager.get_training_data(USER, test_size = 0.2, oversampling = 'SMOTENC')
+    classifier = DecisionTreeClassifier()
+    classifier.fit(X_train, y_train)
+    print(f"Classifier Model: {classifier}")
+    print(f"Accuracy Score: {metrics.accuracy_score(classifier.predict(X_test), y_test)}")
+    print()
+    
+    X_train, X_test, y_train, y_test = manager.get_training_data(USER, test_size = 0.2, classification = False)
+    regressor = LinearRegression()
+    regressor.fit(X_train, y_train)
+    print(f"Regression Model: {regressor}")
+    print(f"Mean Squared Error: {metrics.mean_squared_error(regressor.predict(X_test), y_test)}")
+    print()
+    
+    return classifier, regressor
+
+
+def train_generative_system(manager: DataManager, USER: str, verbose: bool = True) -> Tuple[NeuralNet, MinMaxScaler]:
+    """
+    Comentário.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+    """
+    
+    skorch_model = NeuralNet(
+        module = VariationalAutoencoder,
+        module__latent_dim = 35,
+        module__hidden_dims = [40],
+        criterion = VAELoss,
+        optimizer = torch.optim.Adam,
+        lr = 0.0001,
+        max_epochs = 200,
+        batch_size = 100,
+        iterator_train__shuffle = True,
+        train_split = CVSplit(0.3),
+        device = device,
+        verbose = verbose
+    )
+    
+    print("Generative Model:")
+    print(skorch_model)
+    
+    # Ajuste de escala "treinado" para os dados do usuário selecionado
+    scaler = MinMaxScaler()
+    
+    # Seleciona o conjunto de dados com curtida positiva, normaliza e transforma em torch.Tensor
+    X, Y = manager.data_arrays(USER)
+    X = X[Y[:, 0] == 1]
+    scaler.fit(X)
+    X = scaler.transform(X)
+    X = torch.tensor(X).float().to(device)
+
+    # Ajusta o modelo
+    skorch_model.fit(X, X)
+    print()
+    
+    return skorch_model, scaler
