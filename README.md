@@ -33,4 +33,4 @@ Para ativar o ambiente, utilizar:
 
 ### Diagrama Esquemático do Sistema de Recomendação
 
-<img src="Sistema.png" width="800" height = "1400" title="diagrama_sistema">
+<img src="docs/Sistema.png" width="800" height = "1400" title="diagrama_sistema">
